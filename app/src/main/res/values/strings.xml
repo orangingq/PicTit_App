@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">PicTit</string>
+    <string name="tv_placeholder">Object detection demo</string>
+</resources>

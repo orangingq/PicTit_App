@@ -1,9 +1,6 @@
 package com.example.pictit3
 
-import org.tensorflow.lite.InterpreterApi;
-//import org.tensorflow.lite.nnapi.NnApiDelegate;
 import android.Manifest
-import android.content.pm.FeatureInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -18,9 +15,10 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.util.Log
+import android.view.Gravity
 import android.view.View
+import android.widget.CompoundButton
 import android.widget.ImageView
-import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
@@ -34,14 +32,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.pictit3.databinding.ActivityMainBinding
 import com.example.pictit3.ml.LiteModelSsdMobilenetV11Metadata2
-import com.example.pictit3.ml.MobilenetV1075160Quantized1Metadata1
-//import com.example.pictit3.ml.SsdMobilenetV11Metadata1
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.tensorflow.lite.support.image.BoundingBoxUtil
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.task.audio.classifier.AudioClassifier
-import org.tensorflow.lite.task.vision.detector.ObjectDetector
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -72,8 +68,6 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var viewBinding: ActivityMainBinding
     private lateinit var imageView: ImageView
-    private lateinit var recorderSpecsTextView: TextView
-    private lateinit var textView: TextView
     private lateinit var currentPhotoPath: String
     private lateinit var file: File
     private lateinit var cameraExecutor: ExecutorService
@@ -81,6 +75,11 @@ class MainActivity : AppCompatActivity() {
     private val finishtimeed: Long = 1000
     private var presstime: Long = 0
     private val recordProcess:Timer = Timer()
+    private var audioTextList = arrayListOf<String>()
+    private var taglist = arrayListOf<String>()
+    private lateinit var button: MaterialButton
+    private lateinit var toggleGroup: MaterialButtonToggleGroup
+
     var modelPath = "lite-model_yamnet_classification_tflite_1.tflite"
 
     // TODO 2.2: defining the minimum threshold
@@ -112,8 +111,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         viewBinding = ActivityMainBinding.inflate(layoutInflater)
         imageView = viewBinding.imageView
-        textView = viewBinding.output
-        recorderSpecsTextView = viewBinding.textViewAudioRecorderSpecs
         setContentView(viewBinding.root)
 
         // Request camera permissions
@@ -181,7 +178,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startAudioRecording(){
-
         // TODO 2.3: Loading the model from the assets folder
         val classifier = AudioClassifier.createFromFile(this, modelPath)
 
@@ -192,7 +188,8 @@ class MainActivity : AppCompatActivity() {
         val format = classifier.requiredTensorAudioFormat
         val recorderSpecs = "Number Of Channels: ${format.channels}\n" +
                 "Sample Rate: ${format.sampleRate}"
-        recorderSpecsTextView.text = recorderSpecs
+//        recorderSpecsTextView.text = recorderSpecs
+        Log.d("startAudioRecording", recorderSpecs)
 
         // TODO 3.3: Creating
         val record = classifier.createAudioRecord()
@@ -207,19 +204,28 @@ class MainActivity : AppCompatActivity() {
 
             // TODO 4.2: Filtering out classifications with low probability
             val filteredModelOutput = output[0].categories.filter {
-                it.score > probabilityThreshold
+                it.score > probabilityThreshold && !(it.label in audioTextList)
             }
 
-            // TODO 4.3: Creating a multiline string with the filtered results
-            val outputStr =
-                filteredModelOutput.sortedBy { -it.score }
-                    .joinToString(separator = "\n") { "${it.label} -> ${it.score} " }
-
-            // TODO 4.4: Updating the UI
-            if (outputStr.isNotEmpty())
-                runOnUiThread {
-                    textView.text = outputStr
+            for(it in output[0].categories){
+                if (audioTextList.size >= 5) {
+                    recordProcess.cancel()
+                    break
                 }
+                if(it.score <= probabilityThreshold) continue
+                if(it.label in audioTextList) continue
+
+                audioTextList.add(it.label)
+            }
+//            audioTextList
+//            // TODO 4.3: Creating a multiline string with the filtered results
+//            val outputStr = filteredModelOutput.map{it.label}
+
+//            // TODO 4.4: Updating the UI
+//            if (outputStr.isNotEmpty())
+//                runOnUiThread {
+//                    addTextButton(outputStr, true)
+//                }
         }
     }
 
@@ -263,7 +269,9 @@ class MainActivity : AppCompatActivity() {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     val bitmap: Bitmap = getCapturedImage()
                     val msg = "Photo capture succeeded: ${output.savedUri}"
-                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    val toast:Toast = Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT)
+                    toast.setGravity(Gravity.TOP, 0, 20)
+                    toast.show()
                     setViewAndDetect(bitmap)
                 }
             }
@@ -279,6 +287,8 @@ class MainActivity : AppCompatActivity() {
         // Runs model inference and gets result.
         val outputs = model.process(image)
         val detectionResult = outputs.detectionResultList.sortedBy{it.scoreAsFloat}.asReversed()
+        Log.d("runObjectDetection2", "detectionResult: " + detectionResult.size.toString())
+        Log.d("runObjectDetection2", "detectionResult: " + detectionResult[0].categoryAsString +" - "+ detectionResult[0].scoreAsFloat.toString())
 
         // Parse the detection result and show it
         var selected = arrayListOf<String>()
@@ -288,7 +298,7 @@ class MainActivity : AppCompatActivity() {
             val category = it.categoryAsString;
             val score = it.scoreAsFloat;
             if (category in selected) continue
-            if(score < 20 || selected.size > 4) break
+            if(score < 0.2 || selected.size > 4) break
 
             selected.add(category)
 
@@ -299,10 +309,17 @@ class MainActivity : AppCompatActivity() {
             detectionResults.add(DetectionResult(location, text))
         }
 
-        val resultToDisplay = detectionResults.map{it}
+        recordProcess.cancel()
+
+        runOnUiThread {
+            addTextButton(selected, false)
+            addTextButton(audioTextList, true)
+        }
+        Log.d("runObjectDetection2", "selected: "+selected.toString())
+        Log.d("runObjectDetection2", "audioTextList: "+audioTextList.toString())
 
         // Draw the detection result on the bitmap and show it.
-        val imgWithResult = drawDetectionResult(bitmap, resultToDisplay)
+        val imgWithResult = drawDetectionResult(bitmap, detectionResults.map{it})
         runOnUiThread {
             imageView.setImageBitmap(imgWithResult)
         }
@@ -317,8 +334,8 @@ class MainActivity : AppCompatActivity() {
         viewBinding.imageCaptureButton.visibility = View.INVISIBLE
         viewBinding.viewFinder.visibility = View.INVISIBLE
         imageView.visibility = View.VISIBLE
-        textView.visibility = View.VISIBLE
-        recorderSpecsTextView.visibility = View.VISIBLE
+        viewBinding.audioTagText.visibility = View.VISIBLE
+        viewBinding.imageTagText.visibility = View.VISIBLE
 
         /*  Run ODT and display result
          *  Note that we run this in the background thread to avoid blocking the app UI because
@@ -428,6 +445,51 @@ class MainActivity : AppCompatActivity() {
             matrix, true
         )
     }
+
+
+    private fun addTextButton(textlist: List<String>, isAudio: Boolean){
+        var cnt = 1
+        toggleGroup = viewBinding.audiotoggle1 // just for compiler
+
+        for(text in textlist){
+            // set the button parameters and add into the layout
+            if (cnt > 5) break
+            if(isAudio){
+                if(cnt == 1) toggleGroup = viewBinding.audiotoggle1
+                else if(cnt == 2) toggleGroup = viewBinding.audiotoggle2
+                else if (cnt== 3) toggleGroup = viewBinding.audiotoggle3
+                else if (cnt== 4) toggleGroup = viewBinding.audiotoggle4
+                else toggleGroup = viewBinding.audiotoggle5
+            }else{
+                if(cnt == 1) toggleGroup = viewBinding.imagetoggle1
+                else if(cnt == 2) toggleGroup = viewBinding.imagetoggle2
+                else if (cnt== 3) toggleGroup = viewBinding.imagetoggle3
+                else if (cnt== 4) toggleGroup = viewBinding.imagetoggle4
+                else toggleGroup = viewBinding.imagetoggle5
+            }
+
+            button = toggleGroup.getChildAt(0) as MaterialButton
+            button.visibility = View.VISIBLE
+            button.text = text
+            toggleGroup.check(button.id)
+
+            button.addOnCheckedChangeListener({ buttonView, isChecked ->
+                    if(isChecked){
+                        taglist.add(buttonView.text.toString())
+                        Log.d("addTextButton", "added: "+buttonView.text.toString()+ ", taglist: "+taglist.toString())
+                    }else{
+                        taglist.remove(buttonView.text.toString())
+                    }
+                })
+//            button.setOnClickListener {
+//                taglist.add(text)
+//                Log.d("addTextButton", "added: "+text+ ", taglist: "+taglist.toString())
+//            }
+
+            cnt+= 1
+        }
+    }
+
 
 //    override fun onDestroy() {
 //        super.onDestroy()

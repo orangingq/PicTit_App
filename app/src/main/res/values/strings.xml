@@ -1,4 +1,6 @@
 <resources>
     <string name="app_name">PicTit</string>
-    <string name="tv_placeholder">Object detection demo</string>
+    <string name="camera_button">take a photo</string>
+    <string name="imageText">image: </string>
+    <string name="audioText">sound: </string>
 </resources>

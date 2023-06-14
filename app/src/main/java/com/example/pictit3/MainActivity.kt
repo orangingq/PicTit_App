@@ -1,10 +1,10 @@
 package com.example.pictit3
 
+import org.tensorflow.lite.InterpreterApi;
+//import org.tensorflow.lite.nnapi.NnApiDelegate;
 import android.Manifest
-import android.annotation.SuppressLint
-import android.content.ContentValues
+import android.content.pm.FeatureInfo
 import android.content.pm.PackageManager
-import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -14,54 +14,49 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.media.ExifInterface
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
-import androidx.annotation.Nullable
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.Recording
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import androidx.loader.content.CursorLoader
 import com.example.pictit3.databinding.ActivityMainBinding
+import com.example.pictit3.ml.LiteModelSsdMobilenetV11Metadata2
+import com.example.pictit3.ml.MobilenetV1075160Quantized1Metadata1
+//import com.example.pictit3.ml.SsdMobilenetV11Metadata1
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.tensorflow.lite.support.image.BoundingBoxUtil
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.task.audio.classifier.AudioClassifier
+import org.tensorflow.lite.task.vision.detector.ObjectDetector
+import java.io.File
+import java.io.IOException
 import java.text.SimpleDateFormat
-import java.util.Locale
+import java.util.Date
+import java.util.Timer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.concurrent.scheduleAtFixedRate
 import kotlin.math.max
 import kotlin.math.min
-import org.tensorflow.lite.support.image.TensorImage
-import org.tensorflow.lite.task.vision.detector.ObjectDetector
-//import org.tensorflow.lite.Interpreter;
-//import org.tensorflow.lite.nnapi.NnApiDelegate;
-import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
-import java.util.Date
 
-
-typealias LumaListener = (luma: Double) -> Unit
 
 class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "PicTit"
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private const val REQUEST_CODE_PERMISSIONS = 10
         private const val MAX_FONT_SIZE = 96F
         private val REQUIRED_PERMISSIONS =
@@ -77,11 +72,20 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var viewBinding: ActivityMainBinding
     private lateinit var imageView: ImageView
-    private var imageCapture: ImageCapture? = null
+    private lateinit var recorderSpecsTextView: TextView
+    private lateinit var textView: TextView
     private lateinit var currentPhotoPath: String
     private lateinit var file: File
-    private var recording: Recording? = null
     private lateinit var cameraExecutor: ExecutorService
+    private var imageCapture: ImageCapture? = null
+    private val finishtimeed: Long = 1000
+    private var presstime: Long = 0
+    private val recordProcess:Timer = Timer()
+    var modelPath = "lite-model_yamnet_classification_tflite_1.tflite"
+
+    // TODO 2.2: defining the minimum threshold
+    var probabilityThreshold: Float = 0.3f
+
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
@@ -104,16 +108,18 @@ class MainActivity : AppCompatActivity() {
             baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
 
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         viewBinding = ActivityMainBinding.inflate(layoutInflater)
         imageView = viewBinding.imageView
+        textView = viewBinding.output
+        recorderSpecsTextView = viewBinding.textViewAudioRecorderSpecs
         setContentView(viewBinding.root)
 
         // Request camera permissions
         if (allPermissionsGranted()) {
             startCamera()
+            startAudioRecording() // audio recording start!
         } else {
             ActivityCompat.requestPermissions(
                 this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
@@ -124,85 +130,20 @@ class MainActivity : AppCompatActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
-    /**
-     * createImageFile():
-     *     Generates a temporary image file for the Camera app to write to.
-     */
-    @Throws(IOException::class)
-    private fun createImageFile(): File {
-        // Create an image file name
-        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
-        val storageDir: File? = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-        file = File.createTempFile(
-            "JPEG_${timeStamp}_", /* prefix */
-            ".jpg", /* suffix */
-            storageDir /* directory */
-        ).apply {
-            // Save a file: path for use with ACTION_VIEW intents
-            currentPhotoPath = absolutePath
+    override fun onBackPressed() {
+        val tempTime = System.currentTimeMillis()
+        val intervalTime: Long = tempTime - presstime
+        if (0 <= intervalTime && finishtimeed >= intervalTime) {
+            recordProcess.cancel()
+            finish()
+        } else {
+            presstime = tempTime
+            Toast.makeText(applicationContext, "Press again to finish the app.", Toast.LENGTH_SHORT).show()
+//            recordProcess.cancel()
+//            finish()
+//            startActivity(Intent(this, MainActivity.javaClass))
+
         }
-        return file
-    }
-
-    private fun takePhoto() {
-        // Get a stable reference of the modifiable image capture use case
-        val imageCapture = imageCapture ?: return
-
-        // Create time stamped name and MediaStore entry.
-//        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
-//            .format(System.currentTimeMillis())
-//        val contentValues = ContentValues().apply {
-//            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-//            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-//            if(Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-//                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CameraX-Image")
-//            }
-//        }
-
-        // Create output options object which contains file + metadata
-        val outputOptions = ImageCapture.OutputFileOptions
-            .Builder(
-//                contentResolver,
-//                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-//                contentValues
-                createImageFile()
-            )
-            .build()
-
-        // Set up image capture listener, which is triggered after photo has been taken
-        imageCapture.takePicture(
-            outputOptions,
-            ContextCompat.getMainExecutor(this),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onError(exc: ImageCaptureException) {
-                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
-                }
-
-                @RequiresApi(Build.VERSION_CODES.Q)
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    val bitmap: Bitmap = getCapturedImage()
-                    val msg = "Photo capture succeeded: ${output.savedUri}"
-                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
-                    setViewAndDetect(bitmap)
-//                    runOnUiThread {
-//                    }
-                }
-//
-//                override fun
-//                        onImageSaved(output: ImageCapture.OutputFileResults){
-////                    val data = output.image?.toBitmap() // image capture in bitmap
-////                    val out = FileOutputStream(outputFile)
-////                    data?.compress(Bitmap.CompressFormat.JPEG, QUALITY_PHOTO, out)
-//
-//
-//
-//                    val msg = "Photo capture succeeded: ${output.savedUri}"
-//                    Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
-//                    Log.d(TAG, msg)
-//                    setViewAndDetect(output.savedUri!!)
-//                }
-            }
-        )
     }
 
     private fun startCamera() {
@@ -239,120 +180,160 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun runObjectDetection(bitmap: Bitmap) {
-        // Step 1: Create TFLite's TensorImage object
-        val image = TensorImage.fromBitmap(bitmap)
-        Log.d("runObjectDetection", "Step 1 clear")
+    private fun startAudioRecording(){
 
-        // Step 2: Initialize the detector object
-        val options = ObjectDetector.ObjectDetectorOptions.builder()
-            .setMaxResults(5)
-            .setScoreThreshold(0.3f)
+        // TODO 2.3: Loading the model from the assets folder
+        val classifier = AudioClassifier.createFromFile(this, modelPath)
+
+        // TODO 3.1: Creating an audio recorder
+        val tensor = classifier.createInputTensorAudio()
+
+        // TODO 3.2: showing the audio recorder specification
+        val format = classifier.requiredTensorAudioFormat
+        val recorderSpecs = "Number Of Channels: ${format.channels}\n" +
+                "Sample Rate: ${format.sampleRate}"
+        recorderSpecsTextView.text = recorderSpecs
+
+        // TODO 3.3: Creating
+        val record = classifier.createAudioRecord()
+        record.startRecording()
+
+        recordProcess.scheduleAtFixedRate(1, 500) {
+
+            // TODO 4.1: Classifing audio data
+            val numberOfSamples = tensor.load(record)
+            val output = classifier.classify(tensor)
+            Log.d("startAudioRecording", "output: "+output.toString())
+
+            // TODO 4.2: Filtering out classifications with low probability
+            val filteredModelOutput = output[0].categories.filter {
+                it.score > probabilityThreshold
+            }
+
+            // TODO 4.3: Creating a multiline string with the filtered results
+            val outputStr =
+                filteredModelOutput.sortedBy { -it.score }
+                    .joinToString(separator = "\n") { "${it.label} -> ${it.score} " }
+
+            // TODO 4.4: Updating the UI
+            if (outputStr.isNotEmpty())
+                runOnUiThread {
+                    textView.text = outputStr
+                }
+        }
+    }
+
+    @Throws(IOException::class)
+    private fun createImageFile(): File {
+        // Create an image file name
+        val timeStamp: String = SimpleDateFormat(/* pattern = */ "yyyyMMdd_HHmmss").format(Date())
+        val storageDir: File? = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        file = File.createTempFile(
+            "JPEG_${timeStamp}_", /* prefix */
+            ".jpg", /* suffix */
+            storageDir /* directory */
+        ).apply {
+            // Save a file: path for use with ACTION_VIEW intents
+            currentPhotoPath = absolutePath
+        }
+        return file
+    }
+
+    private fun takePhoto() {
+        // Get a stable reference of the modifiable image capture use case
+        val imageCapture = imageCapture ?: return
+
+        // Create output options object which contains file + metadata
+        val outputOptions = ImageCapture.OutputFileOptions
+            .Builder(
+                createImageFile()
+            )
             .build()
-        Log.d("runObjectDetection", "Step 2 options done")
 
+        // Set up image capture listener, which is triggered after photo has been taken
+        imageCapture.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onError(exc: ImageCaptureException) {
+                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                }
 
-
-
-//        Interpreter.Options options = (new Interpreter.Options());
-//        NnApiDelegate nnApiDelegate = null;
-//// Initialize interpreter with NNAPI delegate for Android Pie or above
-//        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-//            nnApiDelegate = new NnApiDelegate();
-//            options.addDelegate(nnApiDelegate);
-//        }
-//
-//// Initialize TFLite interpreter
-//        try {
-//            tfLite = new Interpreter(loadModelFile(assetManager, modelFilename), options);
-//        } catch (Exception e) {
-//            throw new RuntimeException(e);
-//        }
-//
-//// Run inference
-//// …
-//
-//// Unload delegate
-//        tfLite.close();
-//        if(null != nnApiDelegate) {
-//            nnApiDelegate.close();
-//        }
-
-
-
-        val detector = ObjectDetector.createFromFileAndOptions(
-            this,
-            "salad.tflite",
-            options
+                @RequiresApi(Build.VERSION_CODES.Q)
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    val bitmap: Bitmap = getCapturedImage()
+                    val msg = "Photo capture succeeded: ${output.savedUri}"
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    setViewAndDetect(bitmap)
+                }
+            }
         )
-        Log.d("runObjectDetection", "Step 2 clear")
+    }
 
-        // Step 3: Feed given image to the detector
-        val results = detector.detect(image)
-        Log.d("runObjectDetection", "Step 3, detection clear")
+    private fun runObjectDetection2(bitmap:Bitmap){
+        val model = LiteModelSsdMobilenetV11Metadata2.newInstance(baseContext)
 
-        // Step 4: Parse the detection result and show it
-        val resultToDisplay = results.map {
-            // Get the top-1 category and craft the display text
-            val category = it.categories.first()
-            Log.d("runObjectDetection", it.categories.toString())
-            val text = "${category.label}, ${category.score.times(100).toInt()}%"
+        // Creates inputs for reference.
+        val image = TensorImage.fromBitmap(bitmap)
+
+        // Runs model inference and gets result.
+        val outputs = model.process(image)
+        val detectionResult = outputs.detectionResultList.sortedBy{it.scoreAsFloat}.asReversed()
+
+        // Parse the detection result and show it
+        var selected = arrayListOf<String>()
+        var detectionResults = arrayListOf<DetectionResult>()
+        for (it in detectionResult){
+            val location = it.locationAsRectF;
+            val category = it.categoryAsString;
+            val score = it.scoreAsFloat;
+            if (category in selected) continue
+            if(score < 20 || selected.size > 4) break
+
+            selected.add(category)
+
+            Log.d("runObjectDetection2", category+ ": " + score.toString())
+            val text = "${category}, ${score.times(100).toInt()}%"
 
             // Create a data object to display the detection result
-            DetectionResult(it.boundingBox, text)
+            detectionResults.add(DetectionResult(location, text))
         }
-        Log.d("runObjectDetection", "Step 4 clear")
+
+        val resultToDisplay = detectionResults.map{it}
 
         // Draw the detection result on the bitmap and show it.
         val imgWithResult = drawDetectionResult(bitmap, resultToDisplay)
         runOnUiThread {
             imageView.setImageBitmap(imgWithResult)
         }
-        Log.d("runObjectDetection", "Step 5, drawing result clear")
+        Log.d("runObjectDetection2", "drawing result clear")
+
+        // Releases model resources if no longer used.
+        model.close()
     }
 
-
-    /**
-     * setViewAndDetect(bitmap: Bitmap)
-     *      Set image to view and call object detection
-     */
     private fun setViewAndDetect(bitmap: Bitmap) {
         // Display capture image
         viewBinding.imageCaptureButton.visibility = View.INVISIBLE
         viewBinding.viewFinder.visibility = View.INVISIBLE
         imageView.visibility = View.VISIBLE
-        imageView.setImageBitmap(bitmap)
+        textView.visibility = View.VISIBLE
+        recorderSpecsTextView.visibility = View.VISIBLE
 
-//         Run ODT and display result
-//         Note that we run this in the background thread to avoid blocking the app UI because
-//         TFLite object detection is a synchronised process.
-        lifecycleScope.launch(Dispatchers.Default) { runObjectDetection(bitmap) }
+        /*  Run ODT and display result
+         *  Note that we run this in the background thread to avoid blocking the app UI because
+         *  TFLite object detection is a synchronised process. */
+        lifecycleScope.launch(Dispatchers.Default) {
+            runObjectDetection2(bitmap)
+        }
     }
 
 
-//    private fun getRealPathFromURI(contentUri: Uri): String {
-//        val proj = arrayOf(MediaStore.Images.Media.DATA)
-//        val loader = CursorLoader(baseContext, contentUri, proj, null, null, null)
-//        val cursor: Cursor = loader.loadInBackground() ?: return ""
-//
-//        val column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
-//        cursor.moveToFirst()
-//        val result = cursor.getString(column_index)
-//        cursor.close()
-//        Log.d("getRealPathFromURI", "result: "+result)
-//        return result
-//    }
-
-    /**
-     * getCapturedImage():
-     *      Decodes and crops the captured image from camera.
-     */
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun getCapturedImage(): Bitmap {
         // Get the dimensions of the View
         val targetW: Int = imageView.width
         val targetH: Int = imageView.height
-//        val photoPath: String = getRealPathFromURI(photoURI)
         val photoPath: String = file.absolutePath
         if(photoPath == "") Log.e("getCapturedImage", "photoPath: null")
         else Log.d("getCapturedImage", "photoPath: "+photoPath)
@@ -400,10 +381,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * drawDetectionResult(bitmap: Bitmap, detectionResults: List<DetectionResult>
-     *      Draw a box around each objects and show the object's name.
-     */
+
     private fun drawDetectionResult(bitmap: Bitmap, detectionResults: List<DetectionResult>): Bitmap {
         val outputBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(outputBitmap)
@@ -417,7 +395,6 @@ class MainActivity : AppCompatActivity() {
             pen.style = Paint.Style.STROKE
             val box = it.boundingBox
             canvas.drawRect(box, pen)
-
 
             val tagSize = Rect(0, 0, 0, 0)
 
@@ -455,6 +432,21 @@ class MainActivity : AppCompatActivity() {
 //    override fun onDestroy() {
 //        super.onDestroy()
 //        cameraExecutor.shutdown()
+//    }
+
+
+
+//    private fun getRealPathFromURI(contentUri: Uri): String {
+//        val proj = arrayOf(MediaStore.Images.Media.DATA)
+//        val loader = CursorLoader(baseContext, contentUri, proj, null, null, null)
+//        val cursor: Cursor = loader.loadInBackground() ?: return ""
+//
+//        val column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
+//        cursor.moveToFirst()
+//        val result = cursor.getString(column_index)
+//        cursor.close()
+//        Log.d("getRealPathFromURI", "result: "+result)
+//        return result
 //    }
 }
 

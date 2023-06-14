@@ -42,6 +42,9 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
+    buildFeatures {
+        mlModelBinding true
+    }
 }
 
 dependencies {
@@ -56,6 +59,9 @@ dependencies {
 
     /* TFlite */
     implementation 'org.tensorflow:tensorflow-lite-task-vision:0.3.1'
+    implementation 'org.tensorflow:tensorflow-lite-task-audio:0.3.1'
+    implementation 'org.tensorflow:tensorflow-lite-support:0.3.1'
+    implementation 'org.tensorflow:tensorflow-lite-metadata:0.1.0'
 //    implementation 'org.tensorflow:tensorflow-lite:2.0.0'
 //    // Import the Task Vision Library dependency (NNAPI is included)
 //    implementation 'org.tensorflow:tensorflow-lite-task-vision'

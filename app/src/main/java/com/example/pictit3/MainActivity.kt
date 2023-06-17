@@ -1,7 +1,9 @@
 package com.example.pictit3
 
 import android.Manifest
+import android.app.Activity
 import android.content.ContentResolver
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.Intent.ACTION_MEDIA_SCANNER_SCAN_FILE
@@ -39,6 +41,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
 import androidx.loader.content.CursorLoader
 import com.example.pictit3.databinding.ActivityMainBinding
@@ -58,11 +61,13 @@ import org.json.JSONException
 import org.json.JSONObject
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.task.audio.classifier.AudioClassifier
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Timer
+import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.concurrent.scheduleAtFixedRate
@@ -90,7 +95,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var viewBinding: ActivityMainBinding
     private lateinit var imageView: ImageView
     private lateinit var submitBtn: Button
-    private lateinit var currentPhotoPath: String
     private lateinit var file: File
     private lateinit var cameraExecutor: ExecutorService
     private var imageCapture: ImageCapture? = null
@@ -103,6 +107,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var title:String
     private lateinit var button: MaterialButton
     private lateinit var toggleGroup: MaterialButtonToggleGroup
+    private lateinit var imagebitmap: Bitmap
 
     var modelPath = "lite-model_yamnet_classification_tflite_1.tflite"
 
@@ -249,10 +254,11 @@ class MainActivity : AppCompatActivity() {
             "JPEG_${timeStamp}_", /* prefix */
             ".jpg", /* suffix */
             storageDir /* directory */
-        ).apply {
-            // Save a file: path for use with ACTION_VIEW intents
-            currentPhotoPath = absolutePath
-        }
+        )
+//            .apply {
+//            // Save a file: path for use with ACTION_VIEW intents
+//            currentPhotoPath = absolutePath
+//        }
         return file
     }
 
@@ -396,19 +402,22 @@ class MainActivity : AppCompatActivity() {
             ExifInterface.ORIENTATION_UNDEFINED
         )
 
-        val bitmap = BitmapFactory.decodeFile(photoPath, bmOptions)
+        imagebitmap = BitmapFactory.decodeFile(photoPath, bmOptions)
         return when (orientation) {
             ExifInterface.ORIENTATION_ROTATE_90 -> {
-                rotateImage(bitmap, 90f)
+                imagebitmap = rotateImage(imagebitmap, 90f)
+                imagebitmap
             }
             ExifInterface.ORIENTATION_ROTATE_180 -> {
-                rotateImage(bitmap, 180f)
+                imagebitmap =rotateImage(imagebitmap, 180f)
+                imagebitmap
             }
             ExifInterface.ORIENTATION_ROTATE_270 -> {
-                rotateImage(bitmap, 270f)
+                imagebitmap = rotateImage(imagebitmap, 270f)
+                imagebitmap
             }
             else -> {
-                bitmap
+                imagebitmap
             }
         }
     }
@@ -549,6 +558,7 @@ class MainActivity : AppCompatActivity() {
                 Log.e("RESPONSE", e.toString())
             }
 
+            @RequiresApi(Build.VERSION_CODES.Q)
             override fun onResponse(call: okhttp3.Call, response: Response) {
                 val body = response.body!!.string()
                 val jsonObject = JSONObject(body).getJSONArray("choices").getJSONObject(0)
@@ -590,6 +600,7 @@ class MainActivity : AppCompatActivity() {
                     val title5 = viewBinding.titleButton5
                     title1.visibility = View.VISIBLE
                     title1.text = titlelist[0]
+                    title = title1.text.toString()
                     title1.addOnCheckedChangeListener {button, isChecked ->
                         if(isChecked){
                         title = button.text.toString()
@@ -629,46 +640,46 @@ class MainActivity : AppCompatActivity() {
                     viewBinding.submitTitleButton.setOnClickListener {
 
                         // Create an image file name
-                        val storageDir: File? = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-                        val newfile = File.createTempFile(title, ".jpg", storageDir)
-                        if(updateFileName(baseContext, file, newfile)){
-                            Log.d("File Rename", "Successful: "+title)
-                        }else{
-                            Log.e("File Rename", "failed...")
-                        }
+                        saveImage(title)
+                        Log.d("File Rename", "Successful: "+title)
                     }
                 })
             }
         })
     }
-//
-//    File sdcard = Environment.getExternalStorageDirectory();
-//    File from = new File(sdcard, "from.txt");
-//    File to = new File(sdcard, "to.txt");
-//    if (updateFileName(context, from, to))
-//    Log.d("File Rename", "Successfully renamed");
-//    else Log.d("File Rename", "Rename filed");
 
-     private fun updateFileName(mContext: Context, from:File, to:File):Boolean {
-        if (from.renameTo(to)) {
-            removeMedia(mContext, from);
-            updateMediaInGallery(mContext, to);
-            return true;
-        } else {
-            return false;
+    @RequiresApi(Build.VERSION_CODES.Q)
+    fun saveImage(fileName: String) {
+//        val bmOptions = BitmapFactory.Options().apply {
+//            // Get the dimensions of the bitmap
+//            inJustDecodeBounds = true
+//            val imageFromView = BitmapFactory.decodeFile(file.absolutePath, this)
+//        }
+
+        val storageDir: File? = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        val newfile = File.createTempFile(
+            fileName+"_", /* prefix */
+            ".jpg", /* suffix */
+            storageDir /* directory */
+        )
+
+        Log.d("before", file.name)
+        val newcontentResolver = ContentValues().apply {
+            if(newfile.exists()) put(Images.Media.DATE_ADDED, System.currentTimeMillis())
+            put(Images.Media.MIME_TYPE, "image/jpeg")
+            put(Images.Media.DATA, newfile.absolutePath)
         }
+        Log.d("saveimage" , "imagefile: "+newfile.absolutePath.toString())
+
+        contentResolver.insert(Images.Media.EXTERNAL_CONTENT_URI, newcontentResolver)
+            .apply {
+            imagebitmap.compress(Bitmap.CompressFormat.JPEG, 100, contentResolver.openOutputStream(newfile.toUri()))
+        }
+
+        Toast.makeText(this, "saved", Toast.LENGTH_SHORT).show()
     }
 
-    private fun updateMediaInGallery( c:Context,  f:File) {
-        val intent = Intent(ACTION_MEDIA_SCANNER_SCAN_FILE);
-        intent.setData(Uri.fromFile(f));
-        c.sendBroadcast(intent);
-    }
 
-    private fun removeMedia( c:Context,  f:File) {
-        val resolver:ContentResolver = c.getContentResolver();
-        resolver.delete(Images.Media.EXTERNAL_CONTENT_URI, Images.Media.DATA + "=?", arrayOf(f.getAbsolutePath()));
-    }
 }
 
 

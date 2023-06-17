@@ -172,8 +172,7 @@
                 android:layout_width="50dp"
                 android:layout_height="match_parent"
                 android:gravity="center_vertical"
-                android:text="@string/imageText"
-                android:visibility="invisible" />
+                android:text="@string/imageText" />
 
             <com.google.android.material.button.MaterialButtonToggleGroup
                 android:layout_height="match_parent"

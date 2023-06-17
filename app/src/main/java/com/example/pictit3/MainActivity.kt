@@ -17,7 +17,6 @@ import android.os.Environment
 import android.util.Log
 import android.view.Gravity
 import android.view.View
-import android.widget.CompoundButton
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
@@ -36,6 +35,15 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import okhttp3.Callback
+import okhttp3.MediaType
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.Response
+import org.json.JSONException
+import org.json.JSONObject
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.task.audio.classifier.AudioClassifier
 import java.io.File
@@ -45,6 +53,7 @@ import java.util.Date
 import java.util.Timer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.scheduleAtFixedRate
 import kotlin.math.max
 import kotlin.math.min
@@ -136,10 +145,6 @@ class MainActivity : AppCompatActivity() {
         } else {
             presstime = tempTime
             Toast.makeText(applicationContext, "Press again to finish the app.", Toast.LENGTH_SHORT).show()
-//            recordProcess.cancel()
-//            finish()
-//            startActivity(Intent(this, MainActivity.javaClass))
-
         }
     }
 
@@ -188,7 +193,6 @@ class MainActivity : AppCompatActivity() {
         val format = classifier.requiredTensorAudioFormat
         val recorderSpecs = "Number Of Channels: ${format.channels}\n" +
                 "Sample Rate: ${format.sampleRate}"
-//        recorderSpecsTextView.text = recorderSpecs
         Log.d("startAudioRecording", recorderSpecs)
 
         // TODO 3.3: Creating
@@ -217,15 +221,6 @@ class MainActivity : AppCompatActivity() {
 
                 audioTextList.add(it.label)
             }
-//            audioTextList
-//            // TODO 4.3: Creating a multiline string with the filtered results
-//            val outputStr = filteredModelOutput.map{it.label}
-
-//            // TODO 4.4: Updating the UI
-//            if (outputStr.isNotEmpty())
-//                runOnUiThread {
-//                    addTextButton(outputStr, true)
-//                }
         }
     }
 
@@ -491,25 +486,43 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-//    override fun onDestroy() {
-//        super.onDestroy()
-//        cameraExecutor.shutdown()
-//    }
+    private fun callGPT() {
+        val JSON = "application/json; charset=utf-8".toMediaType()
+        val messages = JSONObject()
+        try{
+            messages.put("role","user")
+            messages.put("content", "hello!")
+        } catch (e: JSONException) {
+            e.printStackTrace()
+        }
 
+        val jsonObj = JSONObject()
+        try {
+            jsonObj.put("model", "gpt-3.5-turbo")
+            jsonObj.put("messages", messages)
+            jsonObj.put("temperature", 0.7)
+        } catch (e: JSONException) {
+            e.printStackTrace()
+        }
+        val body = RequestBody.create(JSON, jsonObj.toString())
 
+        val url = "https://api.openai.com/v1/chat/completions"
+        val okHttpClient = OkHttpClient();
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer "+resources.getString(R.string.api_key))
+            .post(body).build()
 
-//    private fun getRealPathFromURI(contentUri: Uri): String {
-//        val proj = arrayOf(MediaStore.Images.Media.DATA)
-//        val loader = CursorLoader(baseContext, contentUri, proj, null, null, null)
-//        val cursor: Cursor = loader.loadInBackground() ?: return ""
-//
-//        val column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
-//        cursor.moveToFirst()
-//        val result = cursor.getString(column_index)
-//        cursor.close()
-//        Log.d("getRealPathFromURI", "result: "+result)
-//        return result
-//    }
+        okHttpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                Log.e("RESPONSE", e.toString())
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: Response) {
+                Log.d("RESPONSE", response.body!!.string())
+            }
+        })
+    }
 }
 
 /**

@@ -3,4 +3,6 @@
     <string name="camera_button">take a photo</string>
     <string name="imageText">image: </string>
     <string name="audioText">sound: </string>
+    <string name="submit">Get Title!</string>
+    <string name="submitTitle">Save</string>
 </resources>

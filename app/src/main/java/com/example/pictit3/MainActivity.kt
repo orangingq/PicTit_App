@@ -1,22 +1,33 @@
 package com.example.pictit3
 
 import android.Manifest
+import android.content.ContentResolver
+import android.content.Context
+import android.content.Intent
+import android.content.Intent.ACTION_MEDIA_SCANNER_SCAN_FILE
 import android.content.pm.PackageManager
+import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.media.ExifInterface
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.MediaStore
+import android.provider.MediaStore.*
+import android.provider.OpenableColumns
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
@@ -29,6 +40,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.loader.content.CursorLoader
 import com.example.pictit3.databinding.ActivityMainBinding
 import com.example.pictit3.ml.LiteModelSsdMobilenetV11Metadata2
 import com.google.android.material.button.MaterialButton
@@ -36,12 +48,12 @@ import com.google.android.material.button.MaterialButtonToggleGroup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.Callback
-import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.Response
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import org.tensorflow.lite.support.image.TensorImage
@@ -53,7 +65,6 @@ import java.util.Date
 import java.util.Timer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import kotlin.concurrent.scheduleAtFixedRate
 import kotlin.math.max
 import kotlin.math.min
@@ -67,7 +78,8 @@ class MainActivity : AppCompatActivity() {
         private val REQUIRED_PERMISSIONS =
             mutableListOf (
                 Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.INTERNET
             ).apply {
                 if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
                     add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -77,6 +89,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var viewBinding: ActivityMainBinding
     private lateinit var imageView: ImageView
+    private lateinit var submitBtn: Button
     private lateinit var currentPhotoPath: String
     private lateinit var file: File
     private lateinit var cameraExecutor: ExecutorService
@@ -86,6 +99,8 @@ class MainActivity : AppCompatActivity() {
     private val recordProcess:Timer = Timer()
     private var audioTextList = arrayListOf<String>()
     private var taglist = arrayListOf<String>()
+    private var titlelist = arrayListOf<String>()
+    private lateinit var title:String
     private lateinit var button: MaterialButton
     private lateinit var toggleGroup: MaterialButtonToggleGroup
 
@@ -120,6 +135,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         viewBinding = ActivityMainBinding.inflate(layoutInflater)
         imageView = viewBinding.imageView
+        submitBtn = viewBinding.submitButton
         setContentView(viewBinding.root)
 
         // Request camera permissions
@@ -207,7 +223,7 @@ class MainActivity : AppCompatActivity() {
             Log.d("startAudioRecording", "output: "+output.toString())
 
             // TODO 4.2: Filtering out classifications with low probability
-            val filteredModelOutput = output[0].categories.filter {
+            output[0].categories.forEach {
                 it.score > probabilityThreshold && !(it.label in audioTextList)
             }
 
@@ -331,6 +347,10 @@ class MainActivity : AppCompatActivity() {
         imageView.visibility = View.VISIBLE
         viewBinding.audioTagText.visibility = View.VISIBLE
         viewBinding.imageTagText.visibility = View.VISIBLE
+        submitBtn.visibility = View.VISIBLE
+        submitBtn.setOnClickListener{
+            callGPT()
+        }
 
         /*  Run ODT and display result
          *  Note that we run this in the background thread to avoid blocking the app UI because
@@ -467,6 +487,7 @@ class MainActivity : AppCompatActivity() {
             button.visibility = View.VISIBLE
             button.text = text
             toggleGroup.check(button.id)
+            taglist.add(button.text.toString())
 
             button.addOnCheckedChangeListener({ buttonView, isChecked ->
                     if(isChecked){
@@ -476,10 +497,6 @@ class MainActivity : AppCompatActivity() {
                         taglist.remove(buttonView.text.toString())
                     }
                 })
-//            button.setOnClickListener {
-//                taglist.add(text)
-//                Log.d("addTextButton", "added: "+text+ ", taglist: "+taglist.toString())
-//            }
 
             cnt+= 1
         }
@@ -488,19 +505,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun callGPT() {
         val JSON = "application/json; charset=utf-8".toMediaType()
-        val messages = JSONObject()
+        val message1 = JSONObject()
+        val message2 = JSONObject()
+        val messages = JSONArray()
         try{
-            messages.put("role","user")
-            messages.put("content", "hello!")
+            message1.put("role", "system")
+            message1.put("content", "You are a smart assistant.")
+            message2.put("role","user")
+            var tagstring:String = ""
+            taglist.forEach {
+                tagstring = tagstring + "'"+ it+"',"
+            }
+            tagstring = tagstring.dropLast(1)
+            message2.put("content", "Give 5 titles of picture using the tags "+tagstring+".")
+            messages.put(message1)
+            messages.put(message2)
+
+            Log.d("callGPT", "message2:"+ messages.toString())
         } catch (e: JSONException) {
             e.printStackTrace()
         }
-
         val jsonObj = JSONObject()
         try {
             jsonObj.put("model", "gpt-3.5-turbo")
             jsonObj.put("messages", messages)
             jsonObj.put("temperature", 0.7)
+            Log.d("callGPT", "jsonObj:"+ messages.toString())
         } catch (e: JSONException) {
             e.printStackTrace()
         }
@@ -513,17 +543,136 @@ class MainActivity : AppCompatActivity() {
             .header("Authorization", "Bearer "+resources.getString(R.string.api_key))
             .post(body).build()
 
+
         okHttpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 Log.e("RESPONSE", e.toString())
             }
 
             override fun onResponse(call: okhttp3.Call, response: Response) {
-                Log.d("RESPONSE", response.body!!.string())
+                val body = response.body!!.string()
+                val jsonObject = JSONObject(body).getJSONArray("choices").getJSONObject(0)
+                val result = jsonObject.getJSONObject("message").getString("content")
+                Log.d("RESPONSE",result)
+                var resultList = result.split('"')
+                var cnt = -1
+                resultList.forEach( {
+                    cnt ++
+                    if(cnt % 2 != 0 && it != "") titlelist.add(it)
+                })
+                Log.d("RESPONSE2",titlelist.toString())
+
+                fun onClick(buttonView:MaterialButton, isChecked:Boolean){
+                    if(isChecked){
+                        title = buttonView.text.toString()
+                        Log.d("title", title)
+                    }
+                }
+                runOnUiThread({
+                    viewBinding.audioTagText.visibility = View.GONE
+                    viewBinding.imageTagText.visibility = View.GONE
+                    viewBinding.audioButton1.visibility = View.GONE
+                    viewBinding.audioButton2.visibility = View.GONE
+                    viewBinding.audioButton3.visibility = View.GONE
+                    viewBinding.audioButton4.visibility = View.GONE
+                    viewBinding.audioButton5.visibility = View.GONE
+                    viewBinding.imageButton1.visibility = View.GONE
+                    viewBinding.imageButton2.visibility = View.GONE
+                    viewBinding.imageButton3.visibility = View.GONE
+                    viewBinding.imageButton4.visibility = View.GONE
+                    viewBinding.imageButton5.visibility = View.GONE
+                    submitBtn.visibility = View.GONE
+                    viewBinding.titletoggle.visibility = View.VISIBLE
+                    val title1 = viewBinding.titleButton1
+                    val title2 = viewBinding.titleButton2
+                    val title3 = viewBinding.titleButton3
+                    val title4 = viewBinding.titleButton4
+                    val title5 = viewBinding.titleButton5
+                    title1.visibility = View.VISIBLE
+                    title1.text = titlelist[0]
+                    title1.addOnCheckedChangeListener {button, isChecked ->
+                        if(isChecked){
+                        title = button.text.toString()
+                        Log.d("title", title)
+                    }}
+                    title2.visibility = View.VISIBLE
+                    title2.text = titlelist[1]
+                    title2.addOnCheckedChangeListener {button, isChecked ->
+                        if(isChecked){
+                            title = button.text.toString()
+                            Log.d("title", title)
+                        }}
+                    title3.visibility = View.VISIBLE
+                    title3.text = titlelist[2]
+                    title3.addOnCheckedChangeListener {button, isChecked ->
+                        if(isChecked){
+                            title = button.text.toString()
+                            Log.d("title", title)
+                        }}
+                    title4.visibility = View.VISIBLE
+                    title4.text = titlelist[3]
+                    title4.addOnCheckedChangeListener {button, isChecked ->
+                        if(isChecked){
+                            title = button.text.toString()
+                            Log.d("title", title)
+                        }}
+                    title5.visibility = View.VISIBLE
+                    title5.text = titlelist[4]
+                    title5.addOnCheckedChangeListener {button, isChecked ->
+                        if(isChecked){
+                            title = button.text.toString()
+                            Log.d("title", title)
+                        }}
+                    Log.d("RESPONSE3", title1.text.toString())
+
+                    viewBinding.submitTitleButton.visibility = View.VISIBLE
+                    viewBinding.submitTitleButton.setOnClickListener {
+
+                        // Create an image file name
+                        val storageDir: File? = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+                        val newfile = File.createTempFile(title, ".jpg", storageDir)
+                        if(updateFileName(baseContext, file, newfile)){
+                            Log.d("File Rename", "Successful: "+title)
+                        }else{
+                            Log.e("File Rename", "failed...")
+                        }
+                    }
+                })
             }
         })
     }
+//
+//    File sdcard = Environment.getExternalStorageDirectory();
+//    File from = new File(sdcard, "from.txt");
+//    File to = new File(sdcard, "to.txt");
+//    if (updateFileName(context, from, to))
+//    Log.d("File Rename", "Successfully renamed");
+//    else Log.d("File Rename", "Rename filed");
+
+     private fun updateFileName(mContext: Context, from:File, to:File):Boolean {
+        if (from.renameTo(to)) {
+            removeMedia(mContext, from);
+            updateMediaInGallery(mContext, to);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private fun updateMediaInGallery( c:Context,  f:File) {
+        val intent = Intent(ACTION_MEDIA_SCANNER_SCAN_FILE);
+        intent.setData(Uri.fromFile(f));
+        c.sendBroadcast(intent);
+    }
+
+    private fun removeMedia( c:Context,  f:File) {
+        val resolver:ContentResolver = c.getContentResolver();
+        resolver.delete(Images.Media.EXTERNAL_CONTENT_URI, Images.Media.DATA + "=?", arrayOf(f.getAbsolutePath()));
+    }
 }
+
+
+
 
 /**
  * DetectionResult

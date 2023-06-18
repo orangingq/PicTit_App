@@ -281,10 +281,11 @@ class Main2Activity : AppCompatActivity() {
 
         recordProcess.cancel()
 
-        runOnUiThread {
+//        runOnUiThread {
             addTextButton(selected, false)
             addTextButton(audioTextList, true)
-        }
+
+//        }
         Log.d("runObjectDetection2", "selected: "+selected.toString())
         Log.d("runObjectDetection2", "audioTextList: "+audioTextList.toString())
 
@@ -297,6 +298,7 @@ class Main2Activity : AppCompatActivity() {
 
         // Releases model resources if no longer used.
         model.close()
+        callGPT() //CSH!!! added!!
     }
 
     private fun setViewAndDetect(bitmap: Bitmap) {
@@ -304,12 +306,12 @@ class Main2Activity : AppCompatActivity() {
         viewBinding.imageCaptureButton.visibility = View.INVISIBLE
         viewBinding.viewFinder.visibility = View.INVISIBLE
         imageView.visibility = View.VISIBLE
-        imagetagslayout.visibility = View.VISIBLE
-        audiotagslayout.visibility = View.VISIBLE
-        submitBtn.visibility = View.VISIBLE
-        submitBtn.setOnClickListener{
-            callGPT()
-        }
+//        imagetagslayout.visibility = View.VISIBLE
+//        audiotagslayout.visibility = View.VISIBLE
+//        submitBtn.visibility = View.VISIBLE
+//        submitBtn.setOnClickListener{
+//            callGPT()
+//        }
 
         /*  Run ODT and display result
          *  Note that we run this in the background thread to avoid blocking the app UI because
@@ -425,42 +427,42 @@ class Main2Activity : AppCompatActivity() {
 
 
     private fun addTextButton(textlist: List<String>, isAudio: Boolean){
-        var cnt = 1
-        toggleGroup = viewBinding.audiotoggle1 // just for compiler
+//        var cnt = 1
+//        toggleGroup = viewBinding.audiotoggle1 // just for compiler
 
         for(text in textlist){
-            // set the button parameters and add into the layout
-            if (cnt > 5) break
-            if(isAudio){
-                if(cnt == 1) toggleGroup = viewBinding.audiotoggle1
-                else if(cnt == 2) toggleGroup = viewBinding.audiotoggle2
-                else if (cnt== 3) toggleGroup = viewBinding.audiotoggle3
-                else if (cnt== 4) toggleGroup = viewBinding.audiotoggle4
-                else toggleGroup = viewBinding.audiotoggle5
-            }else{
-                if(cnt == 1) toggleGroup = viewBinding.imagetoggle1
-                else if(cnt == 2) toggleGroup = viewBinding.imagetoggle2
-                else if (cnt== 3) toggleGroup = viewBinding.imagetoggle3
-                else if (cnt== 4) toggleGroup = viewBinding.imagetoggle4
-                else toggleGroup = viewBinding.imagetoggle5
-            }
+//            // set the button parameters and add into the layout
+//            if (cnt > 5) break
+//            if(isAudio){
+//                if(cnt == 1) toggleGroup = viewBinding.audiotoggle1
+//                else if(cnt == 2) toggleGroup = viewBinding.audiotoggle2
+//                else if (cnt== 3) toggleGroup = viewBinding.audiotoggle3
+//                else if (cnt== 4) toggleGroup = viewBinding.audiotoggle4
+//                else toggleGroup = viewBinding.audiotoggle5
+//            }else{
+//                if(cnt == 1) toggleGroup = viewBinding.imagetoggle1
+//                else if(cnt == 2) toggleGroup = viewBinding.imagetoggle2
+//                else if (cnt== 3) toggleGroup = viewBinding.imagetoggle3
+//                else if (cnt== 4) toggleGroup = viewBinding.imagetoggle4
+//                else toggleGroup = viewBinding.imagetoggle5
+//            }
+//
+//            button = toggleGroup.getChildAt(0) as MaterialButton
+//            button.visibility = View.VISIBLE
+//            button.text = text
+//            toggleGroup.check(button.id)
+            taglist.add(text)
 
-            button = toggleGroup.getChildAt(0) as MaterialButton
-            button.visibility = View.VISIBLE
-            button.text = text
-            toggleGroup.check(button.id)
-            taglist.add(button.text.toString())
-
-            button.addOnCheckedChangeListener({ buttonView, isChecked ->
-                if(isChecked){
-                    taglist.add(buttonView.text.toString())
-                    Log.d("addTextButton", "added: "+buttonView.text.toString()+ ", taglist: "+taglist.toString())
-                }else{
-                    taglist.remove(buttonView.text.toString())
-                }
-            })
-
-            cnt+= 1
+//            button.addOnCheckedChangeListener({ buttonView, isChecked ->
+//                if(isChecked){
+//                    taglist.add(buttonView.text.toString())
+//                    Log.d("addTextButton", "added: "+buttonView.text.toString()+ ", taglist: "+taglist.toString())
+//                }else{
+//                    taglist.remove(buttonView.text.toString())
+//                }
+//            })
+//
+//            cnt+= 1
         }
     }
 
@@ -533,18 +535,12 @@ class Main2Activity : AppCompatActivity() {
                 }
                 runOnUiThread({
                     viewBinding.audioTagText.visibility = View.GONE
-//                    viewBinding.imageTagText.visibility = View.GONE
                     viewBinding.audioButton1.visibility = View.GONE
                     viewBinding.audioButton2.visibility = View.GONE
                     viewBinding.audioButton3.visibility = View.GONE
                     viewBinding.audioButton4.visibility = View.GONE
                     viewBinding.audioButton5.visibility = View.GONE
                     viewBinding.imagetagslayout.visibility = View.GONE
-//                    viewBinding.imageButton1.visibility = View.GONE
-//                    viewBinding.imageButton2.visibility = View.GONE
-//                    viewBinding.imageButton3.visibility = View.GONE
-//                    viewBinding.imageButton4.visibility = View.GONE
-//                    viewBinding.imageButton5.visibility = View.GONE
                     submitBtn.visibility = View.GONE
                     viewBinding.titletoggle.visibility = View.VISIBLE
                     val title1 = viewBinding.titleButton1
@@ -552,7 +548,6 @@ class Main2Activity : AppCompatActivity() {
                     val title3 = viewBinding.titleButton3
                     val title4 = viewBinding.titleButton4
                     val title5 = viewBinding.titleButton5
-//                    title1.visibility = View.VISIBLE
                     title1.text = titlelist[0]
                     title = title1.text.toString()
                     title1.addOnCheckedChangeListener {button, isChecked ->
@@ -560,28 +555,24 @@ class Main2Activity : AppCompatActivity() {
                             title = button.text.toString()
                             Log.d("title", title)
                         }}
-//                    title2.visibility = View.VISIBLE
                     title2.text = titlelist[1]
                     title2.addOnCheckedChangeListener {button, isChecked ->
                         if(isChecked){
                             title = button.text.toString()
                             Log.d("title", title)
                         }}
-//                    title3.visibility = View.VISIBLE
                     title3.text = titlelist[2]
                     title3.addOnCheckedChangeListener {button, isChecked ->
                         if(isChecked){
                             title = button.text.toString()
                             Log.d("title", title)
                         }}
-//                    title4.visibility = View.VISIBLE
                     title4.text = titlelist[3]
                     title4.addOnCheckedChangeListener {button, isChecked ->
                         if(isChecked){
                             title = button.text.toString()
                             Log.d("title", title)
                         }}
-//                    title5.visibility = View.VISIBLE
                     title5.text = titlelist[4]
                     title5.addOnCheckedChangeListener {button, isChecked ->
                         if(isChecked){

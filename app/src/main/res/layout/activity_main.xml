@@ -286,14 +286,15 @@
                 app:singleSelection="true"
                 android:orientation="vertical"
                 app:checkedButton="@id/titleButton1"
+                android:background="@color/cardview_light_background"
                 android:visibility="gone"
                 >
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/titleButton1"
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     style="?attr/materialButtonOutlinedStyle"
-                    app:cornerRadius="10dp"
+                    app:cornerRadius="0dp"
                     android:padding="0dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
@@ -303,7 +304,7 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/titleButton2"
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     android:layout_margin="0dp"
                     style="?attr/materialButtonOutlinedStyle"
                     android:padding="0dp"
@@ -315,7 +316,7 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/titleButton3"
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     android:layout_margin="0dp"
                     style="?attr/materialButtonOutlinedStyle"
                     android:padding="0dp"
@@ -327,7 +328,7 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/titleButton4"
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     android:layout_margin="0dp"
                     style="?attr/materialButtonOutlinedStyle"
                     android:padding="0dp"
@@ -339,12 +340,13 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/titleButton5"
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     android:layout_margin="0dp"
                     style="?attr/materialButtonOutlinedStyle"
                     android:padding="0dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
+                    app:cornerRadius="0dp"
                     android:text=""
                     android:textSize="5pt"
                     android:checkable="true"/>
